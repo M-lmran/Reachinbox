@@ -166,7 +166,32 @@ Until configured, **dev sign-in** (`POST /api/auth/dev-login`, or the login butt
 jobs remain in Redis (Bull Board “delayed”) → restart → the worker picks them up and sends
 at their scheduled time. Status transitions `scheduled → processing → sent/failed` persist in Postgres.
 
-## Rate Limiting
+## Throughput, Concurrency & Behavior Under Load
+
+- **Worker concurrency** is configurable via `WORKER_CONCURRENCY` (BullMQ `Worker` concurrency). It is safe in parallel because the worker **atomically claims** each job: `updateMany({ where: { id, status: 'scheduled' }, data: { status: 'processing' }})`. Only one worker/instance wins the claim; others skip → **no double sends** (idempotent).
+- **Minimum delay between sends** = `MIN_EMAIL_DELAY_MS` (**default 2000ms / 2 seconds**). Enforced by scheduling each recipient at `startTime + index × delayMs` with `delayMs` floored to `MIN_EMAIL_DELAY_MS`, so sends are naturally spaced even under concurrency.
+- **Per-sender hourly rate limit** = `MAX_EMAILS_PER_HOUR` (default 200), overridable per campaign (`hourlyLimit`). Enforced with **atomic Redis `INCR`** on a windowed key `email-rate:{senderId}:{hourWindow}` (TTL just over an hour). This is safe across multiple workers/instances (Redis, not in-memory). Supports multiple senders (keyed per `senderId`).
+- **When the hourly limit is reached** the worker does **not** drop or fail the job: it sets `status = scheduled`, `rescheduledForRateLimit = true`, moves `scheduledAt` to the next hour window, and re-enqueues a BullMQ delayed job (`jobId = <emailJobId>:rl:<window>`). Order is preserved as much as practical (rescheduled in claim order; re-throttled again in the next window if still over). The dashboard surfaces a **"throttled"** badge; if Slack is connected, a live message is posted.
+
+### 1000+ emails scheduled at ~the same time
+- Each recipient is its own delayed job spaced by `delayMs`; Redis holds them (survives restart).
+- The first `hourlyLimit` per sender go out that hour; the remainder are rescheduled forward hour-by-hour until drained — nothing is lost or duplicated. (You don't need to actually send thousands via Ethereal; the logic scales.)
+
+## Slack — Real OAuth ("Connect Slack")
+
+Two ways to connect (both live, both post real messages on rate-limit):
+
+**A) One-click OAuth (recommended)**
+1. Create a Slack app at https://api.slack.com/apps → **From scratch**.
+2. **OAuth & Permissions → Redirect URLs** → add `<APP_PUBLIC_URL>/api/auth/slack/oauth/callback`.
+3. Add scope **`incoming-webhook`** (Bot Token Scopes). Save.
+4. **Basic Information** → copy **Client ID** and **Client Secret** → set `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `APP_PUBLIC_URL` (and optionally `SLACK_REDIRECT_URI`).
+5. In the app, Settings → **Connect Slack** → authorize & pick a channel. The backend exchanges the code at `oauth.v2.access`, stores the incoming-webhook URL **per user**, and posts to that channel when a sender hits its hourly limit.
+
+**B) Manual Incoming Webhook** (works without OAuth): paste a webhook URL in Settings → Slack.
+
+If Slack is **not** connected, rate-limit hits simply skip notification (no crash). Connect later and it starts working with **no redeploy**. Disconnect/reconnect are supported.
+
 
 Redis-backed, **per-sender, per-hour** counter using atomic `INCR` on key
 `email-rate:{senderId}:{hourWindow}` with expiry. When the cap is reached the worker
@@ -229,10 +254,10 @@ All responses: `{ success, data, pagination? }` or `{ success:false, error:{ mes
 ## Trade-offs
 
 - Frontend uses JavaScript (JSX) on this hosting template (CRA) rather than TSX; the **backend is full TypeScript strict**. Types/DTOs are documented and mirrored across the boundary.
-- Slack is connected via Incoming Webhook (works today); full OAuth is a prepared interface (Phase 3).
+- Slack supports **real OAuth v2** ("Connect Slack") and a manual webhook; both post live messages on rate-limit.
 - The SMTP/DB idempotency window above is accepted for the assignment scope.
 
 ## Future Improvements
 
 - Phase 2: full Supabase Google OAuth UI, richer authorization/roles, multi-sender management.
-- Phase 3: Elasticsearch search, Slack OAuth polish, global/per-tenant rate tiers, analytics.
+- Phase 3: Elasticsearch search, Slack OAuth polish (channel picker / more notification types), global/per-tenant rate tiers, analytics.
