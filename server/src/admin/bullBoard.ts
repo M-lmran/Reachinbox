@@ -22,7 +22,8 @@ export function buildBullBoardRouter(): Router {
   serverAdapter.setBasePath('/api/admin/queues');
 
   createBullBoard({
-    queues: [new BullMQAdapter(emailQueue)],
+    // Cast: @bull-board/api and bullmq have a known type-only mismatch on JobProgress.
+    queues: [new BullMQAdapter(emailQueue) as unknown as never],
     serverAdapter,
   });
 

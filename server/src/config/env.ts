@@ -21,6 +21,7 @@ const schema = z.object({
   SLACK_CLIENT_ID: z.string().optional().default(''),
   SLACK_CLIENT_SECRET: z.string().optional().default(''),
   SLACK_REDIRECT_URI: z.string().optional().default(''),
+  APP_PUBLIC_URL: z.string().optional().default(''),
   SUPABASE_URL: z.string().optional().default(''),
   SUPABASE_ANON_KEY: z.string().optional().default(''),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),

@@ -32,7 +32,27 @@ export default function SettingsPage() {
   useEffect(() => {
     slackService.getStatus().then(setSlack).catch(() => {});
     authService.getConfig().then(setConfig).catch(() => {});
+    // Handle Slack OAuth redirect result
+    const params = new URLSearchParams(window.location.search);
+    const slackParam = params.get("slack");
+    if (slackParam === "connected") {
+      toast.success("Slack connected");
+      slackService.getStatus().then(setSlack).catch(() => {});
+      window.history.replaceState({}, "", "/dashboard/settings");
+    } else if (slackParam === "error") {
+      toast.error("Slack connection failed");
+      window.history.replaceState({}, "", "/dashboard/settings");
+    }
   }, []);
+
+  const startOAuth = async () => {
+    try {
+      const url = await slackService.startOAuth();
+      window.location.href = url;
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not start Slack OAuth"));
+    }
+  };
 
   const connectSlack = async () => {
     if (!webhook.trim()) return toast.error("Enter a Slack Incoming Webhook URL");
@@ -124,8 +144,29 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              {config?.slackOAuthConfigured && (
+                <div className="rounded-xl border border-border p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <Slack className="h-5 w-5 text-[#4A154B]" />
+                      <span className="text-sm font-medium text-foreground">
+                        Connect with Slack (OAuth)
+                      </span>
+                    </div>
+                    <Button onClick={startOAuth} className="gap-2" data-testid="slack-oauth-connect">
+                      <Link2 className="h-4 w-4" /> Connect Slack
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    You'll authorize ReachInbox and pick a channel; we post there when a sender
+                    hits its hourly limit.
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5">
-                <Label htmlFor="webhook">Slack Incoming Webhook URL</Label>
+                <Label htmlFor="webhook">
+                  {config?.slackOAuthConfigured ? "Or paste an Incoming Webhook URL" : "Slack Incoming Webhook URL"}
+                </Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     id="webhook"
@@ -139,9 +180,11 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Slack OAuth (connect button flow) is prepared for a future phase. Webhook works today.
-              </p>
+              {!config?.slackOAuthConfigured && (
+                <p className="text-xs text-muted-foreground">
+                  Add SLACK_CLIENT_ID / SLACK_CLIENT_SECRET to enable the one-click "Connect Slack" OAuth button.
+                </p>
+              )}
             </div>
           )}
         </Section>

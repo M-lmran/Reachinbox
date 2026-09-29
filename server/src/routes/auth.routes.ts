@@ -21,5 +21,7 @@ router.post('/logout', requireAuth, authController.logout);
 router.get('/slack/status', requireAuth, authController.slackStatus);
 router.post('/slack/connect', requireAuth, validate(slackConnectSchema), authController.slackConnect);
 router.post('/slack/disconnect', requireAuth, authController.slackDisconnect);
+router.get('/slack/oauth/start', requireAuth, authController.slackOAuthStart);
+router.get('/slack/oauth/callback', authController.slackOAuthCallback);
 
 export default router;

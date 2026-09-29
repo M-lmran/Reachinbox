@@ -16,4 +16,8 @@ export const slackService = {
     const { data } = await apiClient.post("/auth/slack/disconnect");
     return data.data;
   },
+  async startOAuth() {
+    const { data } = await apiClient.get("/auth/slack/oauth/start");
+    return data.data.url;
+  },
 };

@@ -26,13 +26,24 @@ async function processEmailJob(job: Job<EmailJobData>) {
     return { skipped: true };
   }
 
-  // Idempotency guard: never resend an already-sent email.
+  // Idempotency fast-path: never resend an already-sent email.
   if (emailJob.status === 'sent') {
     logger.debug({ emailJobId }, 'Already sent; skipping (idempotent)');
     return { skipped: true };
   }
 
-  // Rate limit check (Redis-backed, per sender, per hour).
+  // Atomic claim — safe across concurrent workers/instances.
+  // Only one worker can transition scheduled -> processing; others skip (no double send).
+  const claim = await prisma.emailJob.updateMany({
+    where: { id: emailJobId, status: 'scheduled' },
+    data: { status: 'processing', attempts: { increment: 1 } },
+  });
+  if (claim.count === 0) {
+    logger.debug({ emailJobId }, 'Job already claimed/processed by another worker; skipping');
+    return { skipped: true };
+  }
+
+  // Rate limit check (Redis-backed, per sender, per hour) — after claiming ownership.
   const decision = await rateLimitService.tryConsume(emailJob.senderId, emailJob.campaign.hourlyLimit);
   if (!decision.allowed) {
     const nextStart = new Date(decision.nextWindowStartMs);
@@ -55,12 +66,6 @@ async function processEmailJob(job: Job<EmailJobData>) {
     logger.info({ emailJobId, nextStart }, 'Rate limit reached; rescheduled email');
     return { rescheduled: true };
   }
-
-  // Transition to processing.
-  await prisma.emailJob.update({
-    where: { id: emailJobId },
-    data: { status: 'processing', attempts: { increment: 1 } },
-  });
 
   try {
     const result = await emailProvider.sendEmail({
