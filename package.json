@@ -1,0 +1,15 @@
+{
+  "name": "reachinbox-email-scheduler",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ReachInbox — Email Job Scheduler (React + Node/TS/Express + Prisma + PostgreSQL + Redis + BullMQ)",
+  "scripts": {
+    "infra:up": "docker-compose up -d",
+    "infra:down": "docker-compose down",
+    "backend": "cd server && yarn start",
+    "worker": "cd server && yarn worker",
+    "frontend": "cd frontend && yarn start",
+    "migrate": "cd server && yarn migrate:dev",
+    "seed": "cd server && yarn seed"
+  }
+}
